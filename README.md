@@ -20,20 +20,32 @@
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/home.png" width="800" alt="Home – active account & usage stats" />
-  <br/><em>Home — active account, usage quota, subscription info</em>
+  <img src="docs/screenshots/home.png" width="800" alt="Home" />
+  <br/><em>Home — account overview, usage quota, subscription info</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/auto-register.png" width="800" alt="Auto Register" />
+  <br/><em>Auto Register — batch Kiro account registration with live log output</em>
 </p>
 
 <p align="center">
   <img src="docs/screenshots/accounts.png" width="800" alt="Account Manager" />
-  <br/><em>Account Manager — multi-account grid with status badges</em>
+  <br/><em>Account Manager — multi-account grid with status, usage, and quick actions</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/settings.png" width="800" alt="Settings" />
-  &nbsp;&nbsp;
   <img src="docs/screenshots/machine-id.png" width="800" alt="Machine ID" />
-  <br/><em>Settings &amp; Machine ID management</em>
+  &nbsp;
+  <img src="docs/screenshots/settings.png" width="800" alt="Settings" />
+  <br/><em>Machine ID management &amp; Settings</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/kiro-settings.png" width="800" alt="Kiro Settings" />
+  &nbsp;
+  <img src="docs/screenshots/about.png" width="800" alt="About" />
+  <br/><em>Kiro Settings &amp; About</em>
 </p>
 
 ---
