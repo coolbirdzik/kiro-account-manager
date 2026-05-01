@@ -532,7 +532,7 @@ let mainWindow: BrowserWindow | null = null
 function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    title: `Kiro 账号管理器 v${app.getVersion()}`,
+    title: `Kiro Account Manager v${app.getVersion()}`,
     width: 1200,   // 刚好容纳 3 列卡片 (340*3 + 16*2 + 边距)
     height: 1000,
     minWidth: 800,
@@ -550,7 +550,7 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     // 设置带版本号的标题（HTML 加载后会覆盖初始标题）
-    mainWindow?.setTitle(`Kiro 账号管理器 v${app.getVersion()}`)
+    mainWindow?.setTitle(`Kiro Account Manager v${app.getVersion()}`)
     mainWindow?.show()
   })
 

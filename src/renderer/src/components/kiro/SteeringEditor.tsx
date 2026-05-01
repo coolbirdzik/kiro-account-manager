@@ -11,6 +11,7 @@ interface SteeringEditorProps {
 }
 
 export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorProps) {
+  const { t } = useTranslation()
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
