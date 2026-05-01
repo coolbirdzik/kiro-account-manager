@@ -1,0 +1,223 @@
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
+import { Button } from '../ui'
+import { X, Save, Plus, Trash2 } from 'lucide-react'
+
+interface McpServer {
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+interface McpServerEditorProps {
+  serverName?: string
+  server?: McpServer
+  onClose: () => void
+  onSaved: () => void
+}
+
+export function McpServerEditor({ serverName, server, onClose, onSaved }: McpServerEditorProps) {
+  const { t } = useTranslation()
+  const [name, setName] = useState(serverName || '')
+  const [command, setCommand] = useState(server?.command || '')
+  const [args, setArgs] = useState<string[]>(server?.args || [])
+  const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>(
+    server?.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : []
+  )
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [newArg, setNewArg] = useState('')
+
+  const isEdit = !!serverName
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      setError(t('mcp_server_editor.name_required'))
+      return
+    }
+    if (!command.trim()) {
+      setError(t('mcp_server_editor.command_required'))
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+
+    try {
+      const serverConfig: McpServer = {
+        command: command.trim(),
+        args: args.filter(a => a.trim()),
+        env: envVars.reduce((acc, { key, value }) => {
+          if (key.trim()) {
+            acc[key.trim()] = value
+          }
+          return acc
+        }, {} as Record<string, string>)
+      }
+
+      // 如果没有 args 或 env，不包含这些字段
+      if (serverConfig.args?.length === 0) delete serverConfig.args
+      if (Object.keys(serverConfig.env || {}).length === 0) delete serverConfig.env
+
+      const result = await window.api.saveMcpServer(name.trim(), serverConfig, isEdit ? serverName : undefined)
+      
+      if (result.success) {
+        onSaved()
+        onClose()
+      } else {
+        setError(result.error || t('mcp_server_editor.save_failed'))
+      }
+    } catch (err) {
+      setError(t('mcp_server_editor.save_failed'))
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const addArg = () => {
+    if (newArg.trim()) {
+      setArgs([...args, newArg.trim()])
+      setNewArg('')
+    }
+  }
+
+  const removeArg = (index: number) => {
+    setArgs(args.filter((_, i) => i !== index))
+  }
+
+  const addEnvVar = () => {
+    setEnvVars([...envVars, { key: '', value: '' }])
+  }
+
+  const updateEnvVar = (index: number, field: 'key' | 'value', value: string) => {
+    const updated = [...envVars]
+    updated[index][field] = value
+    setEnvVars(updated)
+  }
+
+  const removeEnvVar = (index: number) => {
+    setEnvVars(envVars.filter((_, i) => i !== index))
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div 
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      
+      <div className="relative bg-background rounded-lg shadow-xl w-[90vw] max-w-lg max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h2 className="font-semibold">{isEdit ? t('mcp_server_editor.edit_title') : t('mcp_server_editor.add_title')}</h2>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {error && (
+          <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm">
+            {error}
+          </div>
+        )}
+
+        <div className="flex-1 p-4 space-y-4 overflow-auto">
+          {/* Server name */}
+          <div>
+            <label className="block text-sm font-medium mb-1">{t('mcp_server_editor.server_name_label')}</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('mcp_server_editor.server_name_placeholder')}
+              className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+              disabled={isEdit}
+            />
+          </div>
+
+          {/* Command */}
+          <div>
+            <label className="block text-sm font-medium mb-1">{t('mcp_server_editor.command_label')}</label>
+            <input
+              type="text"
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+              placeholder={t('mcp_server_editor.command_placeholder')}
+              className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+            />
+          </div>
+
+          {/* Args */}
+          <div>
+            <label className="block text-sm font-medium mb-1">{t('mcp_server_editor.args_label')}</label>
+            <div className="space-y-2">
+              {args.map((arg, index) => (
+                <div key={index} className="flex gap-2">
+                  <code className="flex-1 px-2 py-1 bg-muted rounded text-sm">{arg}</code>
+                  <Button variant="ghost" size="sm" onClick={() => removeArg(index)}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newArg}
+                  onChange={(e) => setNewArg(e.target.value)}
+                  placeholder={t('mcp_server_editor.arg_placeholder')}
+                  className="flex-1 px-3 py-1.5 rounded-md border bg-background text-sm"
+                  onKeyDown={(e) => e.key === 'Enter' && addArg()}
+                />
+                <Button variant="outline" size="sm" onClick={addArg}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Environment variables */}
+          <div>
+            <label className="block text-sm font-medium mb-1">{t('mcp_server_editor.env_vars_label')}</label>
+            <div className="space-y-2">
+              {envVars.map((env, index) => (
+                <div key={index} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={env.key}
+                    onChange={(e) => updateEnvVar(index, 'key', e.target.value)}
+                    placeholder={t('mcp_server_editor.var_key_placeholder')}
+                    className="w-1/3 px-2 py-1.5 rounded-md border bg-background text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={env.value}
+                    onChange={(e) => updateEnvVar(index, 'value', e.target.value)}
+                    placeholder={t('mcp_server_editor.var_value_placeholder')}
+                    className="flex-1 px-2 py-1.5 rounded-md border bg-background text-sm"
+                  />
+                  <Button variant="ghost" size="sm" onClick={() => removeEnvVar(index)}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={addEnvVar}>
+                <Plus className="h-4 w-4 mr-1" />
+                {t('mcp_server_editor.add_env_var')}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 px-4 py-3 border-t">
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            <Save className="h-4 w-4 mr-1" />
+            {saving ? t('mcp_server_editor.saving') : t('common.save')}
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}

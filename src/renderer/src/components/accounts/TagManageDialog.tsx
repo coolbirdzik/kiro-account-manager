@@ -1,0 +1,439 @@
+import { useState } from 'react'
+import { Button, Card, CardContent, CardHeader, CardTitle } from '../ui'
+import { useAccountsStore } from '@/store/accounts'
+import type { AccountTag } from '@/types/account'
+import { X, Plus, Edit2, Trash2, Tag, Check, Palette } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+
+interface TagManageDialogProps {
+  isOpen: boolean
+  onClose: () => void
+}
+
+// 预设颜色（带透明度）
+const PRESET_COLORS = [
+  { name: 'Red', value: '#ffef4444' },
+  { name: 'Orange', value: '#fff97316' },
+  { name: 'Yellow', value: '#ffeab308' },
+  { name: 'Green', value: '#ff22c55e' },
+  { name: 'Cyan', value: '#ff06b6d4' },
+  { name: 'Blue', value: '#ff3b82f6' },
+  { name: 'Purple', value: '#ff8b5cf6' },
+  { name: 'Pink', value: '#ffec4899' },
+  { name: 'Gray', value: '#ff6b7280' },
+  // 半透明版本
+  { name: 'Light Red', value: '#80ef4444' },
+  { name: 'Light Green', value: '#8022c55e' },
+  { name: 'Light Blue', value: '#803b82f6' },
+  { name: 'Light Purple', value: '#808b5cf6' },
+]
+
+// 解析 ARGB 颜色
+function parseArgb(color: string): { alpha: number; rgb: string } {
+  // 支持格式: #AARRGGBB 或 #RRGGBB
+  if (color.length === 9 && color.startsWith('#')) {
+    const alpha = parseInt(color.slice(1, 3), 16)
+    const rgb = '#' + color.slice(3)
+    return { alpha, rgb }
+  }
+  return { alpha: 255, rgb: color }
+}
+
+// 转换为 ARGB 格式
+function toArgb(rgb: string, alpha: number): string {
+  const hex = rgb.startsWith('#') ? rgb.slice(1) : rgb
+  const alphaHex = Math.round(alpha).toString(16).padStart(2, '0')
+  return `#${alphaHex}${hex}`
+}
+
+// 转换为 CSS rgba
+function toRgba(argbColor: string): string {
+  const { alpha, rgb } = parseArgb(argbColor)
+  const hex = rgb.startsWith('#') ? rgb.slice(1) : rgb
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha / 255})`
+}
+
+export function TagManageDialog({ isOpen, onClose }: TagManageDialogProps): React.ReactNode {
+  const { t } = useTranslation()
+  const { tags, accounts, addTag, updateTag, removeTag, addTagToAccounts, removeTagFromAccounts } = useAccountsStore()
+
+  // 编辑状态
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editColor, setEditColor] = useState('#ff3b82f6')
+  const [editAlpha, setEditAlpha] = useState(255)
+
+  // 新建状态
+  const [isCreating, setIsCreating] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newColor, setNewColor] = useState('#3b82f6')
+  const [newAlpha, setNewAlpha] = useState(255)
+
+  // 分配账号状态
+  const [assigningTagId, setAssigningTagId] = useState<string | null>(null)
+
+  // 获取标签的账号数量
+  const getTagAccountCount = (tagId: string): number => {
+    return Array.from(accounts.values()).filter(acc => acc.tags.includes(tagId)).length
+  }
+
+  // 获取未标记的账号数量
+  const getUntaggedCount = (): number => {
+    return Array.from(accounts.values()).filter(acc => acc.tags.length === 0).length
+  }
+
+  // 创建标签
+  const handleCreate = () => {
+    if (!newName.trim()) return
+    const argbColor = toArgb(newColor, newAlpha)
+    addTag({
+      name: newName.trim(),
+      color: argbColor
+    })
+    setNewName('')
+    setNewColor('#3b82f6')
+    setNewAlpha(255)
+    setIsCreating(false)
+  }
+
+  // 开始编辑
+  const handleStartEdit = (tag: AccountTag) => {
+    setEditingId(tag.id)
+    setEditName(tag.name)
+    const { alpha, rgb } = parseArgb(tag.color)
+    setEditColor(rgb)
+    setEditAlpha(alpha)
+  }
+
+  // 保存编辑
+  const handleSaveEdit = () => {
+    if (!editingId || !editName.trim()) return
+    const argbColor = toArgb(editColor, editAlpha)
+    updateTag(editingId, {
+      name: editName.trim(),
+      color: argbColor
+    })
+    setEditingId(null)
+  }
+
+  // 删除标签
+  const handleDelete = (id: string, name: string) => {
+    const count = getTagAccountCount(id)
+    const msg = count > 0
+      ? t('tag_dialog.confirm_delete_used', { name, count })
+      : t('tag_dialog.confirm_delete', { name })
+    if (confirm(msg)) {
+      removeTag(id)
+    }
+  }
+
+  // 获取带有此标签的账号列表
+  const getTaggedAccounts = (tagId: string) => {
+    return Array.from(accounts.values()).filter(acc => acc.tags.includes(tagId))
+  }
+
+  // 获取可添加此标签的账号列表
+  const getUntaggedByTag = (tagId: string) => {
+    return Array.from(accounts.values()).filter(acc => !acc.tags.includes(tagId))
+  }
+
+  const tagList = Array.from(tags.values())
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+
+      <Card className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden z-10 flex flex-col">
+        <CardHeader className="flex flex-row items-center justify-between pb-2 shrink-0">
+          <CardTitle className="flex items-center gap-2">
+            <Tag className="h-5 w-5" />
+            {t('accounts.manage_tags')}
+          </CardTitle>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+
+        <CardContent className="flex-1 overflow-auto space-y-4">
+          {/* 统计信息 */}
+          <div className="flex gap-4 text-sm text-muted-foreground">
+            <span>{t('tag_dialog.total_tags', { count: tagList.length })}</span>
+            <span>•</span>
+            <span>{t('tag_dialog.untagged_accounts', { count: getUntaggedCount() })}</span>
+          </div>
+
+          {/* 新建标签 */}
+          {isCreating ? (
+            <div className="p-4 border rounded-lg space-y-3 bg-muted/30">
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-8 h-8 rounded border cursor-pointer flex items-center justify-center"
+                  style={{ backgroundColor: toRgba(toArgb(newColor, newAlpha)) }}
+                >
+                  <input
+                    type="color"
+                    value={newColor}
+                    onChange={(e) => setNewColor(e.target.value)}
+                    className="w-full h-full opacity-0 cursor-pointer"
+                  />
+                </div>
+                <input
+                  type="text"
+                  placeholder={t('tag_dialog.tag_name_placeholder')}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                  autoFocus
+                />
+              </div>
+              
+              {/* 透明度滑块 */}
+              <div className="flex items-center gap-3">
+                <Palette className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground w-16">{t('tag_dialog.opacity')}</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="255"
+                  value={newAlpha}
+                  onChange={(e) => setNewAlpha(parseInt(e.target.value))}
+                  className="flex-1"
+                />
+                <span className="text-sm w-12 text-right">{Math.round(newAlpha / 255 * 100)}%</span>
+              </div>
+
+              {/* 预设颜色 */}
+              <div className="flex flex-wrap gap-1">
+                {PRESET_COLORS.map((preset) => (
+                  <button
+                    key={preset.value}
+                    className="w-6 h-6 rounded border hover:scale-110 transition-transform"
+                    style={{ backgroundColor: toRgba(preset.value) }}
+                    onClick={() => {
+                      const { alpha, rgb } = parseArgb(preset.value)
+                      setNewColor(rgb)
+                      setNewAlpha(alpha)
+                    }}
+                    title={preset.name}
+                  />
+                ))}
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setIsCreating(false)}>
+                  {t('common.cancel')}
+                </Button>
+                <Button size="sm" onClick={handleCreate} disabled={!newName.trim()}>
+                  <Check className="h-4 w-4 mr-1" />
+                  {t('accounts.create_tag')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="outline" className="w-full" onClick={() => setIsCreating(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              {t('accounts.create_tag')}
+            </Button>
+          )}
+
+          {/* 标签列表 */}
+          <div className="space-y-2">
+            {tagList.map((tag) => (
+              <div
+                key={tag.id}
+                className="p-3 border rounded-lg hover:bg-muted/30 transition-colors"
+              >
+                {editingId === tag.id ? (
+                  // 编辑模式
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-8 h-8 rounded border cursor-pointer flex items-center justify-center"
+                        style={{ backgroundColor: toRgba(toArgb(editColor, editAlpha)) }}
+                      >
+                        <input
+                          type="color"
+                          value={editColor}
+                          onChange={(e) => setEditColor(e.target.value)}
+                          className="w-full h-full opacity-0 cursor-pointer"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="flex-1 px-3 py-1.5 border rounded text-sm"
+                        autoFocus
+                      />
+                    </div>
+                    
+                    {/* 透明度滑块 */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-muted-foreground w-16">{t('tag_dialog.opacity')}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="255"
+                        value={editAlpha}
+                        onChange={(e) => setEditAlpha(parseInt(e.target.value))}
+                        className="flex-1"
+                      />
+                      <span className="text-sm w-12 text-right">{Math.round(editAlpha / 255 * 100)}%</span>
+                    </div>
+
+                    {/* 预设颜色 */}
+                    <div className="flex flex-wrap gap-1">
+                      {PRESET_COLORS.map((preset) => (
+                        <button
+                          key={preset.value}
+                          className="w-6 h-6 rounded border hover:scale-110 transition-transform"
+                          style={{ backgroundColor: toRgba(preset.value) }}
+                          onClick={() => {
+                            const { alpha, rgb } = parseArgb(preset.value)
+                            setEditColor(rgb)
+                            setEditAlpha(alpha)
+                          }}
+                          title={preset.name}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>
+                        {t('common.cancel')}
+                      </Button>
+                      <Button size="sm" onClick={handleSaveEdit}>
+                        {t('common.save')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : assigningTagId === tag.id ? (
+                  // 分配账号模式
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-white"
+                        style={{ backgroundColor: toRgba(tag.color) }}
+                      >
+                        {tag.name}
+                      </span>
+                      <span className="text-sm text-muted-foreground">- {t('tag_dialog.select_accounts_to_add')}</span>
+                    </div>
+                    
+                    {/* 已标记的账号 */}
+                    {getTaggedAccounts(tag.id).length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">{t('tag_dialog.tagged_accounts')}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {getTaggedAccounts(tag.id).map(acc => (
+                            <span
+                              key={acc.id}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                              style={{ backgroundColor: toRgba(tag.color), color: 'white' }}
+                            >
+                              {acc.email}
+                              <button
+                                onClick={() => removeTagFromAccounts([acc.id], tag.id)}
+                                className="hover:opacity-70"
+                                title={t('accounts.remove_tags')}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 可添加标签的账号 */}
+                    {getUntaggedByTag(tag.id).length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">{t('tag_dialog.click_to_add_tag')}</p>
+                        <div className="flex flex-wrap gap-1 max-h-32 overflow-auto">
+                          {getUntaggedByTag(tag.id).map(acc => (
+                            <button
+                              key={acc.id}
+                              onClick={() => addTagToAccounts([acc.id], tag.id)}
+                              className="px-2 py-0.5 bg-muted hover:bg-primary/20 rounded text-xs transition-colors"
+                            >
+                              {acc.email}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end">
+                      <Button variant="outline" size="sm" onClick={() => setAssigningTagId(null)}>
+                        {t('tag_dialog.done')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  // 显示模式
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-white shrink-0"
+                      style={{ backgroundColor: toRgba(tag.color) }}
+                    >
+                      {tag.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {t('tag_dialog.account_count', { count: getTagAccountCount(tag.id) })}
+                    </span>
+                    <div className="flex-1" />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setAssigningTagId(tag.id)}
+                        title={t('tag_dialog.manage_accounts')}
+                      >
+                        <Tag className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleStartEdit(tag)}
+                        title={t('common.edit')}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => handleDelete(tag.id, tag.name)}
+                        title={t('common.delete')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {tagList.length === 0 && !isCreating && (
+              <div className="text-center py-8 text-muted-foreground">
+                <Tag className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>{t('tag_dialog.no_tags')}</p>
+                <p className="text-sm">{t('tag_dialog.create_first_tag')}</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// 导出工具函数供其他组件使用
+export { toRgba, parseArgb, toArgb }

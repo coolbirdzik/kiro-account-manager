@@ -1,0 +1,315 @@
+import { useTranslation } from 'react-i18next'
+import { Button } from '../ui'
+import { useAccountsStore } from '@/store/accounts'
+import type { AccountFilter as FilterType, SubscriptionType, AccountStatus, IdpType } from '@/types/account'
+import { cn } from '@/lib/utils'
+
+// 解析 ARGB 颜色转换为 CSS rgba
+function toRgba(argbColor: string): string {
+  // 支持格式: #AARRGGBB 或 #RRGGBB
+  let alpha = 255
+  let rgb = argbColor
+  if (argbColor.length === 9 && argbColor.startsWith('#')) {
+    alpha = parseInt(argbColor.slice(1, 3), 16)
+    rgb = '#' + argbColor.slice(3)
+  }
+  const hex = rgb.startsWith('#') ? rgb.slice(1) : rgb
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha / 255})`
+}
+
+export function AccountFilterPanel(): React.ReactNode {
+  const { t } = useTranslation()
+  const { filter, setFilter, clearFilter, groups, tags, getStats } = useAccountsStore()
+
+  const stats = getStats()
+
+  const SubscriptionOptions: { value: SubscriptionType; label: string }[] = [
+    { value: 'Free', label: 'KIRO FREE' },
+    { value: 'Pro', label: 'KIRO PRO' },
+    { value: 'Pro_Plus', label: 'KIRO PRO+' },
+    { value: 'Enterprise', label: 'KIRO POWER' }
+  ]
+
+  const StatusOptions: { value: AccountStatus; label: string }[] = [
+    { value: 'active', label: t('common.active') },
+    { value: 'expired', label: t('common.expired') },
+    { value: 'error', label: t('common.error') },
+    { value: 'unknown', label: t('common.unknown') }
+  ]
+
+  const IdpOptions: { value: IdpType; label: string }[] = [
+    { value: 'Google', label: 'Google' },
+    { value: 'Github', label: 'GitHub' },
+    { value: 'BuilderId', label: 'AWS Builder ID' },
+    { value: 'AWSIdC', label: 'AWS IAM IdC' }
+  ]
+
+  const hasActiveFilters = Boolean(
+    filter.subscriptionTypes?.length ||
+    filter.statuses?.length ||
+    filter.idps?.length ||
+    filter.groupIds?.length ||
+    filter.tagIds?.length ||
+    filter.usageMin !== undefined ||
+    filter.usageMax !== undefined ||
+    filter.daysRemainingMin !== undefined ||
+    filter.daysRemainingMax !== undefined
+  )
+
+  const toggleArrayFilter = <T extends string>(
+    key: keyof FilterType,
+    value: T
+  ): void => {
+    const current = (filter[key] as T[] | undefined) ?? []
+    const newValue = current.includes(value)
+      ? current.filter((v) => v !== value)
+      : [...current, value]
+
+    setFilter({
+      ...filter,
+      [key]: newValue.length > 0 ? newValue : undefined
+    })
+  }
+
+  const setRangeFilter = (
+    minKey: keyof FilterType,
+    maxKey: keyof FilterType,
+    min: number | undefined,
+    max: number | undefined
+  ): void => {
+    setFilter({
+      ...filter,
+      [minKey]: min,
+      [maxKey]: max
+    })
+  }
+
+  return (
+    <div className="p-3 space-y-2">
+      {/* Clear filter button */}
+       {hasActiveFilters && (
+         <div className="flex justify-end">
+           <Button
+             variant="ghost"
+             size="sm"
+             className="h-6 text-xs px-2"
+             onClick={() => clearFilter()}
+           >
+             {t('common.reset')}
+           </Button>
+         </div>
+       )}
+       {/* First row: Subscription + Status + IDP */}
+           <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
+             {/* Subscription type */}
+             <div className="flex items-center gap-2">
+               <span className="text-xs text-muted-foreground shrink-0">{t('dialogs.subscription_type')}:</span>
+              <div className="flex flex-wrap gap-1">
+                {SubscriptionOptions.map((option) => {
+                  const isActive = filter.subscriptionTypes?.includes(option.value)
+                  const count = stats.bySubscription[option.value]
+                  return (
+                    <button
+                      key={option.value}
+                      className={cn(
+                        'px-2 py-0.5 text-xs rounded border transition-colors',
+                        isActive
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'hover:bg-muted'
+                      )}
+                      onClick={() => toggleArrayFilter('subscriptionTypes', option.value)}
+                    >
+                      {option.label}({count})
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+             {/* Status */}
+             <div className="flex items-center gap-2">
+               <span className="text-xs text-muted-foreground shrink-0">{t('accounts.filter_by_status')}:</span>
+              <div className="flex flex-wrap gap-1">
+                {StatusOptions.map((option) => {
+                  const isActive = filter.statuses?.includes(option.value)
+                  const count = stats.byStatus[option.value]
+                  return (
+                    <button
+                      key={option.value}
+                      className={cn(
+                        'px-2 py-0.5 text-xs rounded border transition-colors',
+                        isActive
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'hover:bg-muted'
+                      )}
+                      onClick={() => toggleArrayFilter('statuses', option.value)}
+                    >
+                      {option.label}({count})
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+             {/* IDP */}
+             <div className="flex items-center gap-2">
+               <span className="text-xs text-muted-foreground shrink-0">IDP:</span>
+              <div className="flex flex-wrap gap-1">
+                {IdpOptions.map((option) => {
+                  const isActive = filter.idps?.includes(option.value)
+                  const count = stats.byIdp[option.value]
+                  return (
+                    <button
+                      key={option.value}
+                      className={cn(
+                        'px-2 py-0.5 text-xs rounded border transition-colors',
+                        isActive
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'hover:bg-muted'
+                      )}
+                      onClick={() => toggleArrayFilter('idps', option.value)}
+                    >
+                      {option.label}({count})
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+           {/* Second row: Groups + Tags + Range filters */}
+           <div className="flex flex-wrap items-start gap-x-6 gap-y-2 mt-2">
+             {/* Groups */}
+             {groups.size > 0 && (
+               <div className="flex items-center gap-2">
+                 <span className="text-xs text-muted-foreground shrink-0">{t('accounts.group_name')}:</span>
+                <div className="flex flex-wrap gap-1">
+                  {Array.from(groups.values()).map((group) => {
+                    const isActive = filter.groupIds?.includes(group.id)
+                    return (
+                      <button
+                        key={group.id}
+                        className={cn(
+                          'px-2 py-0.5 text-xs rounded border transition-colors',
+                          isActive
+                            ? 'text-white border-transparent'
+                            : 'hover:bg-muted'
+                        )}
+                        style={isActive && group.color ? { backgroundColor: toRgba(group.color) } : undefined}
+                        onClick={() => toggleArrayFilter('groupIds', group.id)}
+                      >
+                        {group.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+             {/* Tags */}
+             {tags.size > 0 && (
+               <div className="flex items-center gap-2">
+                 <span className="text-xs text-muted-foreground shrink-0">{t('accounts.tag_name')}:</span>
+                <div className="flex flex-wrap gap-1">
+                  {Array.from(tags.values()).map((tag) => {
+                    const isActive = filter.tagIds?.includes(tag.id)
+                    return (
+                      <button
+                        key={tag.id}
+                        className={cn(
+                          'px-2 py-0.5 text-xs rounded border transition-colors',
+                          isActive ? 'text-white border-transparent' : 'hover:bg-muted'
+                        )}
+                        style={isActive ? { backgroundColor: toRgba(tag.color) } : undefined}
+                        onClick={() => toggleArrayFilter('tagIds', tag.id)}
+                      >
+                        {tag.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+             {/* Usage range */}
+             <div className="flex items-center gap-1">
+               <span className="text-xs text-muted-foreground">{t('accounts.account_usage')}:</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                placeholder={t('filter.min')}
+                className="w-14 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                value={filter.usageMin ?? ''}
+                onChange={(e) =>
+                  setRangeFilter(
+                    'usageMin',
+                    'usageMax',
+                    e.target.value ? Number(e.target.value) / 100 : undefined,
+                    filter.usageMax
+                  )
+                }
+              />
+              <span className="text-muted-foreground text-xs">-</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                placeholder={t('filter.max')}
+                className="w-14 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                value={filter.usageMax !== undefined ? filter.usageMax * 100 : ''}
+                onChange={(e) =>
+                  setRangeFilter(
+                    'usageMin',
+                    'usageMax',
+                    filter.usageMin,
+                    e.target.value ? Number(e.target.value) / 100 : undefined
+                  )
+                }
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+
+             {/* Remaining days range */}
+             <div className="flex items-center gap-1">
+               <span className="text-xs text-muted-foreground">{t('common.remaining')}:</span>
+              <input
+                type="number"
+                min="0"
+                placeholder={t('filter.min')}
+                className="w-14 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                value={filter.daysRemainingMin ?? ''}
+                onChange={(e) =>
+                  setRangeFilter(
+                    'daysRemainingMin',
+                    'daysRemainingMax',
+                    e.target.value ? Number(e.target.value) : undefined,
+                    filter.daysRemainingMax
+                  )
+                }
+              />
+              <span className="text-muted-foreground text-xs">-</span>
+              <input
+                type="number"
+                min="0"
+                placeholder={t('filter.max')}
+                className="w-14 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                value={filter.daysRemainingMax ?? ''}
+                onChange={(e) =>
+                  setRangeFilter(
+                    'daysRemainingMin',
+                    'daysRemainingMax',
+                    filter.daysRemainingMin,
+                    e.target.value ? Number(e.target.value) : undefined
+                  )
+                }
+              />
+               <span className="text-xs text-muted-foreground">{t('common.days')}</span>
+            </div>
+          </div>
+    </div>
+  )
+}
