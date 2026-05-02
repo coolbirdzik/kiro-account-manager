@@ -1,27 +1,30 @@
 import { useState, useEffect } from 'react'
 import { AccountManager } from './components/accounts'
 import { Sidebar, type PageType } from './components/layout'
-import { HomePage, AboutPage, SettingsPage, MachineIdPage, KiroSettingsPage, AutoRegisterPage } from './components/pages'
+import { HomePage, AboutPage, SettingsPage, MachineIdPage, KiroSettingsPage, AutoRegisterPage, ChangePasswordPage, VaultPage } from './components/pages'
 import { UpdateDialog } from './components/UpdateDialog'
 import { LanguageSwitcher } from './components/LanguageSwitcher'
 import { useAccountsStore } from './store/accounts'
+import { useVaultStore } from './store/vault'
 
 function App(): React.JSX.Element {
   const [currentPage, setCurrentPage] = useState<PageType>('home')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   
   const { loadFromStorage, startAutoTokenRefresh, stopAutoTokenRefresh, handleBackgroundRefreshResult, handleBackgroundCheckResult } = useAccountsStore()
+  const vaultLoadFromStorage = useVaultStore((s) => s.loadFromStorage)
   
   // Load data on app startup and start auto token refresh
   useEffect(() => {
     loadFromStorage().then(() => {
       startAutoTokenRefresh()
     })
+    vaultLoadFromStorage()
     
     return () => {
       stopAutoTokenRefresh()
     }
-  }, [loadFromStorage, startAutoTokenRefresh, stopAutoTokenRefresh])
+  }, [loadFromStorage, startAutoTokenRefresh, stopAutoTokenRefresh, vaultLoadFromStorage])
 
   // Listen for background refresh results
   useEffect(() => {
@@ -51,6 +54,10 @@ function App(): React.JSX.Element {
         return <AccountManager />
       case 'autoRegister':
         return <AutoRegisterPage />
+      case 'changePassword':
+        return <ChangePasswordPage />
+      case 'vault':
+        return <VaultPage />
       case 'machineId':
         return <MachineIdPage />
       case 'kiroSettings':

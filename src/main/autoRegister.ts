@@ -7,9 +7,19 @@
  * - client_id: Graph API client ID (e.g., 9e5f94bc-xxx...)
  */
 
-import { chromium, Browser, Page } from 'playwright'
+import { chromium, Browser, Page, LaunchOptions } from 'playwright'
 
 type LogCallback = (message: string) => void
+export type BrowserEngine = 'chromium' | 'cloakbrowser'
+
+async function launchBrowser(engine: BrowserEngine, opts: LaunchOptions): Promise<Browser> {
+  if (engine === 'cloakbrowser') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { launch } = await import('cloakbrowser') as any
+    return launch(opts) as Browser
+  }
+  return chromium.launch(opts)
+}
 
 // Verification code patterns - ordered from most specific to most generic
 const CODE_PATTERNS = [
@@ -695,19 +705,24 @@ export async function activateOutlook(
   email: string,
   emailPassword: string,
   log: LogCallback,
-  keepOpen: boolean = false
+  keepOpen: boolean = false,
+  engine: BrowserEngine = 'chromium',
+  proxyUrl?: string
 ): Promise<{ success: boolean; error?: string; browser?: Browser; page?: Page }> {
   const activationUrl = 'https://go.microsoft.com/fwlink/p/?linkid=2125442'
   let browser: Browser | null = null
   
   log('========== Starting Outlook mailbox activation ==========')
   log(`Email: ${email}`)
+  if (engine === 'cloakbrowser') log('Browser: CloakBrowser')
+  if (proxyUrl) log(`Proxy: ${proxyUrl}`)
   
   try {
     // Start browser
     log('\nStep 1: Start browser, access Outlook activation page...')
-    browser = await chromium.launch({
+    browser = await launchBrowser(engine, {
       headless: false,
+      proxy: proxyUrl ? { server: proxyUrl } : undefined,
       args: ['--disable-blink-features=AutomationControlled']
     })
     
@@ -938,22 +953,27 @@ export async function autoRegisterAWS(
   log: LogCallback,
   emailPassword?: string,
   skipOutlookActivation: boolean = false,
-  proxyUrl?: string
+  proxyUrl?: string,
+  keepOutlookOpen: boolean = true,
+  engine: BrowserEngine = 'chromium'
 ): Promise<{ success: boolean; ssoToken?: string; name?: string; error?: string }> {
   const password = 'admin123456aA!'
   const randomName = generateRandomName()
   let browser: Browser | null = null
 
-  // When Microsoft Graph credentials are missing, keep the Outlook tab alive so
-  // we can scrape the OTP from the rendered email instead of failing.
-  const useOutlookPageForOtp = (!refreshToken || !clientId) && !!emailPassword
+  // Keep the Outlook tab open when the caller requests it and a password is provided,
+  // so the user can visually confirm whether the verification email arrived and type
+  // the code manually if automatic fetching fails.
+  // When Graph creds are also present the tab is only used as a visual aid —
+  // the code is still fetched via Graph API first.
+  const useOutlookPageForOtp = keepOutlookOpen && !!emailPassword
   let outlookBrowser: Browser | null = null
   let outlookPage: Page | null = null
 
   // If it's an Outlook email and password is provided, activate first (without proxy)
   if (!skipOutlookActivation && email.toLowerCase().includes('outlook') && emailPassword) {
     log('Detected Outlook email, activating first (without proxy)...')
-    const activationResult = await activateOutlook(email, emailPassword, log, useOutlookPageForOtp)
+    const activationResult = await activateOutlook(email, emailPassword, log, useOutlookPageForOtp, engine)
     if (!activationResult.success) {
       log(`⚠ Outlook activation may not be complete: ${activationResult.error}`)
       log('Continuing with AWS registration...')
@@ -963,7 +983,11 @@ export async function autoRegisterAWS(
     if (useOutlookPageForOtp && activationResult.browser && activationResult.page) {
       outlookBrowser = activationResult.browser
       outlookPage = activationResult.page
-      log('→ Outlook tab kept open: will read OTP directly from inbox.')
+      if (refreshToken && clientId) {
+        log('→ Outlook tab kept open for visual reference (OTP will be fetched via Graph API).')
+      } else {
+        log('→ Outlook tab kept open: will read OTP from inbox (or enter manually).')
+      }
     }
     // Wait a moment before continuing
     await new Promise(r => setTimeout(r, 2000))
@@ -980,7 +1004,8 @@ export async function autoRegisterAWS(
   try {
     // Step 1: Create browser, enter registration page (using proxy)
     log('\nStep 1: Launching browser, entering registration page...')
-    browser = await chromium.launch({
+    if (engine === 'cloakbrowser') log('Browser: CloakBrowser')
+    browser = await launchBrowser(engine, {
       headless: false,
       proxy: proxyUrl ? { server: proxyUrl } : undefined,
       args: ['--disable-blink-features=AutomationControlled']
@@ -1295,8 +1320,11 @@ export async function autoRegisterAWS(
     await browser.close()
     browser = null
 
-    // Done with the AWS browser. Also close the kept-open Outlook tab if any.
-    if (outlookBrowser) {
+    if (keepOutlookOpen) {
+      // Leave the Outlook browser open so the user can verify that the
+      // verification email arrived (or read the code themselves if needed).
+      // The user is responsible for closing it manually.
+    } else if (outlookBrowser) {
       try { await outlookBrowser.close() } catch { /* ignore */ }
       outlookBrowser = null
       outlookPage = null

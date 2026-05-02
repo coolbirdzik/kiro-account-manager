@@ -15,18 +15,23 @@ import {
   RefreshCw,
   AlertCircle,
   Terminal,
-  Zap
+  Zap,
+  Download
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Badge } from '../ui/badge'
 import { useAccountsStore } from '@/store/accounts'
 import { useAutoRegisterStore, type RegisterAccount } from '@/store/autoRegister'
+import { useVaultStore } from '@/store/vault'
 import { v4 as uuidv4 } from 'uuid'
 
 export function AutoRegisterPage() {
   const { t } = useTranslation()
   const [inputText, setInputText] = useState('')
+  const [pipeCopied, setPipeCopied] = useState(false)
+  const [showProxyPanel, setShowProxyPanel] = useState(false)
+  const [proxyListText, setProxyListText] = useState('')
   const logEndRef = useRef<HTMLDivElement>(null)
   
   // 使用全局 store
@@ -36,6 +41,9 @@ export function AutoRegisterPage() {
     logs,
     concurrency,
     skipOutlookActivation,
+    keepOutlookBrowserOpen,
+    browserEngine,
+    proxyList,
     addAccounts,
     clearAccounts,
     updateAccountStatus,
@@ -44,6 +52,10 @@ export function AutoRegisterPage() {
     setIsRunning,
     setConcurrency,
     setSkipOutlookActivation,
+    setKeepOutlookBrowserOpen,
+    setBrowserEngine,
+    setProxyList,
+    getNextProxy,
     requestStop,
     resetStop,
     getStats
@@ -83,8 +95,10 @@ export function AutoRegisterPage() {
       const parts = trimmed.split('|')
       if (parts.length >= 1 && parts[0].includes('@')) {
         const email = parts[0].trim()
-        // 检查是否已存在
-        const exists = isEmailExists(email)
+        const doneField = parts[4]?.trim() || ''
+        // Skip if the "done" column is set, or if already in the manager
+        const isDone = !!doneField && doneField !== '0' && doneField.toLowerCase() !== 'false'
+        const exists = isDone || isEmailExists(email)
         parsed.push({
           id: uuidv4(),
           email,
@@ -216,6 +230,10 @@ export function AutoRegisterPage() {
       updateAccountStatus(account.id, { status: 'registering' })
       addLog(`[${account.email}] ${t('auto_register.starting_registration')}...`)
       
+      // Resolve proxy: round-robin list takes precedence over the global single proxy
+      const rotatedProxy = useAutoRegisterStore.getState().getNextProxy()
+      const resolvedProxy = rotatedProxy ?? (proxyUrl || undefined)
+
       // Call main process auto-register function
       const result = await window.api.autoRegisterAWS({
         email: account.email,
@@ -223,7 +241,9 @@ export function AutoRegisterPage() {
         refreshToken: account.refreshToken,
         clientId: account.clientId,
         skipOutlookActivation: useAutoRegisterStore.getState().skipOutlookActivation,
-        proxyUrl: proxyUrl || undefined
+        keepOutlookOpen: useAutoRegisterStore.getState().keepOutlookBrowserOpen,
+        proxyUrl: resolvedProxy,
+        browserEngine: useAutoRegisterStore.getState().browserEngine
       })
       
       if (result.success && result.ssoToken) {
@@ -234,6 +254,17 @@ export function AutoRegisterPage() {
         })
         addLog(`[${account.email}] ✓ ${t('auto_register.registration_success')}!`)
         
+        // Persist to Vault (upsert by email, mark done)
+        useVaultStore.getState().upsertByEmail(account.email, {
+          password: account.password,
+          refreshToken: account.refreshToken,
+          clientId: account.clientId,
+          done: true,
+          ssoToken: result.ssoToken,
+          awsName: result.name,
+          lastUsedAt: Date.now()
+        })
+
         // Import account using SSO Token
         await importWithSsoToken(account, result.ssoToken, result.name || account.email.split('@')[0])
         
@@ -314,6 +345,57 @@ export function AutoRegisterPage() {
     navigator.clipboard.writeText(token)
   }
 
+  const exportResults = (format: 'csv' | 'markdown') => {
+    if (accounts.length === 0) {
+      alert(t('auto_register.no_results_to_export'))
+      return
+    }
+
+    // done=1 for success/exists, empty for pending/failed/in-progress
+    const doneValue = (a: RegisterAccount) =>
+      a.status === 'success' || a.status === 'exists' ? '1' : ''
+
+    let content = ''
+    if (format === 'csv') {
+      const sep = ','
+      const header = ['email', 'password', 'refreshToken', 'clientId', 'done'].join(sep)
+      const rows = accounts.map(a =>
+        [a.email, a.password, a.refreshToken, a.clientId, doneValue(a)].join(sep)
+      )
+      content = [header, ...rows].join('\n')
+    } else {
+      const header = '| email | password | refreshToken | clientId | done |'
+      const divider = '|---|---|---|---|---|'
+      const rows = accounts.map(a =>
+        `| ${a.email} | ${a.password} | ${a.refreshToken} | ${a.clientId} | ${doneValue(a)} |`
+      )
+      content = [header, divider, ...rows].join('\n')
+    }
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `register-results.${format === 'csv' ? 'csv' : 'md'}`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const copyPipeFormat = () => {
+    if (accounts.length === 0) {
+      alert(t('auto_register.no_results_to_export'))
+      return
+    }
+    const doneValue = (a: RegisterAccount) =>
+      a.status === 'success' || a.status === 'exists' ? '1' : ''
+    const lines = accounts.map(a =>
+      `${a.email}|${a.password}|${a.refreshToken}|${a.clientId}|${doneValue(a)}`
+    )
+    navigator.clipboard.writeText(lines.join('\n'))
+    setPipeCopied(true)
+    setTimeout(() => setPipeCopied(false), 2000)
+  }
+
   const getStatusBadge = (status: RegisterAccount['status']) => {
     switch (status) {
       case 'pending':
@@ -341,9 +423,14 @@ export function AutoRegisterPage() {
       updateAccountStatus(account.id, { status: 'activating' })
       addLog(`[${account.email}] ${t('auto_register.starting_outlook_activation')}...`)
       
+      const rotatedProxy = useAutoRegisterStore.getState().getNextProxy()
+      const resolvedProxy = rotatedProxy ?? (proxyUrl || undefined)
+
       const result = await window.api.activateOutlook({
         email: account.email,
-        emailPassword: account.password
+        emailPassword: account.password,
+        browserEngine: useAutoRegisterStore.getState().browserEngine,
+        proxyUrl: resolvedProxy
       })
       
       if (result.success) {
@@ -420,14 +507,17 @@ export function AutoRegisterPage() {
           </p>
         </div>
         <div className="flex gap-2 items-center flex-wrap">
-          <input
-            type="text"
-            placeholder={t('auto_register.proxy_address')}
-            value={proxyUrl}
-            onChange={(e) => setProxy(true, e.target.value)}
+          <button
+            type="button"
+            onClick={() => setShowProxyPanel(v => !v)}
             disabled={isRunning}
-            className="px-3 py-1.5 border rounded-lg bg-background text-sm w-56"
-          />
+            className={`px-3 py-1.5 border rounded-lg bg-background text-sm flex items-center gap-1.5 hover:bg-muted transition-colors ${showProxyPanel ? 'border-primary' : ''}`}
+          >
+            {proxyList.length > 0
+              ? <><span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">{proxyList.length}</span>{t('auto_register.proxies_rotating')}</>
+              : <>{t('auto_register.proxy_address')}{proxyUrl ? ` (1)` : ''}</>
+            }
+          </button>
           <div className="flex items-center gap-1">
             <span className="text-sm text-muted-foreground">{t('auto_register.concurrency')}:</span>
             <select
@@ -441,6 +531,18 @@ export function AutoRegisterPage() {
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-1">
+            <span className="text-sm text-muted-foreground">{t('auto_register.browser')}:</span>
+            <select
+              value={browserEngine}
+              onChange={(e) => setBrowserEngine(e.target.value as 'chromium' | 'cloakbrowser')}
+              disabled={isRunning}
+              className="px-2 py-1.5 border rounded-lg bg-background text-sm"
+            >
+              <option value="chromium">Chromium</option>
+              <option value="cloakbrowser">CloakBrowser</option>
+            </select>
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -450,6 +552,16 @@ export function AutoRegisterPage() {
               className="rounded"
             />
             {t('auto_register.skip_activation')}
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={keepOutlookBrowserOpen}
+              onChange={(e) => setKeepOutlookBrowserOpen(e.target.checked)}
+              disabled={isRunning}
+              className="rounded"
+            />
+            {t('auto_register.keep_mail_browser_open')}
           </label>
           <Button variant="outline" onClick={activateOutlookOnly} disabled={isRunning || accounts.length === 0}>
             <Zap className="w-4 h-4 mr-2" />
@@ -468,6 +580,65 @@ export function AutoRegisterPage() {
           )}
         </div>
       </div>
+
+      {/* Multi-proxy panel */}
+      {showProxyPanel && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">{t('auto_register.proxy_list_title')}</CardTitle>
+            <p className="text-sm text-muted-foreground">{t('auto_register.proxy_list_desc')}</p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <textarea
+              className="w-full h-28 p-3 border rounded-lg bg-background resize-none font-mono text-sm"
+              placeholder={`http://user:pass@host:port\nhttp://host2:port\nsocks5://host3:port`}
+              value={proxyListText}
+              onChange={(e) => setProxyListText(e.target.value)}
+              disabled={isRunning}
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setProxyList(proxyListText)
+                  setShowProxyPanel(false)
+                }}
+                disabled={isRunning}
+              >
+                {t('auto_register.proxy_save')}
+              </Button>
+              {proxyList.length === 0 && (
+                <>
+                  <span className="text-sm text-muted-foreground">{t('auto_register.proxy_fallback_label')}</span>
+                  <input
+                    type="text"
+                    placeholder={t('auto_register.proxy_address')}
+                    value={proxyUrl}
+                    onChange={(e) => setProxy(true, e.target.value)}
+                    disabled={isRunning}
+                    className="px-3 py-1.5 border rounded-lg bg-background text-sm flex-1"
+                  />
+                </>
+              )}
+              {proxyList.length > 0 && (
+                <span className="text-sm text-green-600 font-medium">
+                  {proxyList.length} {t('auto_register.proxy_count_suffix')} — {t('auto_register.proxy_rotating')}
+                </span>
+              )}
+              {proxyList.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setProxyList(''); setProxyListText('') }}
+                  disabled={isRunning}
+                >
+                  {t('auto_register.proxy_clear')}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Statistics */}
       {accounts.length > 0 && (
@@ -526,7 +697,7 @@ export function AutoRegisterPage() {
           <CardContent className="space-y-4">
             <textarea
               className="w-full h-32 p-3 border rounded-lg bg-background resize-none font-mono text-sm"
-              placeholder="example@outlook.com|password|M.C509_xxx...|9e5f94bc-xxx..."
+              placeholder="example@outlook.com|password|M.C509_xxx...|9e5f94bc-xxx...|done"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               disabled={isRunning}
@@ -585,11 +756,25 @@ export function AutoRegisterPage() {
       {/* Account list */}
       {accounts.length > 0 && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="flex items-center gap-2">
               <Key className="w-5 h-5" />
               {t('auto_register.registration_list')}
             </CardTitle>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={copyPipeFormat} title={t('auto_register.copy_pipe_format')}>
+                {pipeCopied ? <CheckCircle className="w-4 h-4 mr-1 text-green-500" /> : <Copy className="w-4 h-4 mr-1" />}
+                {pipeCopied ? t('auto_register.copied') : t('auto_register.copy_paste_format')}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => exportResults('markdown')} title={t('auto_register.export_markdown')}>
+                <Download className="w-4 h-4 mr-1" />
+                Markdown
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => exportResults('csv')} title={t('auto_register.export_csv')}>
+                <Download className="w-4 h-4 mr-1" />
+                CSV
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="border rounded-lg overflow-hidden">

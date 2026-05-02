@@ -29,6 +29,7 @@
     "@tanstack/react-virtual": "^3.13.12",
     "cbor-x": "^1.6.0",
     "class-variance-authority": "^0.7.1",
+    "cloakbrowser": "^0.3.26",
     "clsx": "^2.1.1",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.3.9",

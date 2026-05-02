@@ -501,7 +501,9 @@ interface KiroApi {
     refreshToken: string
     clientId: string
     skipOutlookActivation?: boolean
+    keepOutlookOpen?: boolean
     proxyUrl?: string
+    browserEngine?: 'chromium' | 'cloakbrowser'
   }) => Promise<{
     success: boolean
     ssoToken?: string
@@ -513,6 +515,8 @@ interface KiroApi {
   activateOutlook: (params: {
     email: string
     emailPassword: string
+    browserEngine?: 'chromium' | 'cloakbrowser'
+    proxyUrl?: string
   }) => Promise<{
     success: boolean
     error?: string
@@ -570,6 +574,27 @@ interface KiroApi {
     token?: string
     error?: string
   }>
+
+  // ============ Bulk password change ============
+
+  changeOutlookPassword: (params: {
+    email: string
+    oldPassword: string
+    newPassword: string
+    refreshToken: string
+    clientId: string
+    proxyUrl?: string
+  }) => Promise<{
+    success: boolean
+    newPassword?: string
+    error?: string
+  }>
+
+  onChangePasswordLog: (callback: (data: { email: string; message: string }) => void) => () => void
+
+  // ============ Vault API ============
+  loadVault: () => Promise<unknown>
+  saveVault: (data: unknown) => Promise<void>
 }
 
 declare global {

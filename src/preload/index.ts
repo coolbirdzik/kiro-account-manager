@@ -543,7 +543,9 @@ const api = {
     refreshToken: string
     clientId: string
     skipOutlookActivation?: boolean
+    keepOutlookOpen?: boolean
     proxyUrl?: string
+    browserEngine?: 'chromium' | 'cloakbrowser'
   }): Promise<{
     success: boolean
     ssoToken?: string
@@ -557,6 +559,8 @@ const api = {
   activateOutlook: (params: {
     email: string
     emailPassword: string
+    browserEngine?: 'chromium' | 'cloakbrowser'
+    proxyUrl?: string
   }): Promise<{
     success: boolean
     error?: string
@@ -630,6 +634,43 @@ const api = {
     error?: string
   }> => {
     return ipcRenderer.invoke('test-kiro-server-connection', serverUrl, password)
+  },
+
+  // ============ Bulk password change ============
+
+  changeOutlookPassword: (params: {
+    email: string
+    oldPassword: string
+    newPassword: string
+    refreshToken: string
+    clientId: string
+    proxyUrl?: string
+  }): Promise<{
+    success: boolean
+    newPassword?: string
+    error?: string
+  }> => {
+    return ipcRenderer.invoke('change-outlook-password', params)
+  },
+
+  onChangePasswordLog: (callback: (data: { email: string; message: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { email: string; message: string }): void => {
+      callback(data)
+    }
+    ipcRenderer.on('change-password-log', handler)
+    return () => {
+      ipcRenderer.removeListener('change-password-log', handler)
+    }
+  },
+
+  // ============ Vault API ============
+
+  loadVault: (): Promise<unknown> => {
+    return ipcRenderer.invoke('load-vault')
+  },
+
+  saveVault: (data: unknown): Promise<void> => {
+    return ipcRenderer.invoke('save-vault', data)
   }
 }
 

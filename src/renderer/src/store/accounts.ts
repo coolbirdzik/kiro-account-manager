@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
+import { useVaultStore } from './vault'
 import type {
   Account,
   AccountGroup,
@@ -31,6 +32,28 @@ let autoSwitchTimer: ReturnType<typeof setInterval> | null = null
 let autoSaveTimer: ReturnType<typeof setInterval> | null = null
 const AUTO_SAVE_INTERVAL = 30 * 1000 // 每 30 秒自动保存一次
 let lastSaveHash = '' // 用于检测数据是否变化
+
+// Error substrings that indicate a banned / suspended account
+const BAN_MARKERS = ['UnauthorizedException', 'AccountSuspendedException']
+
+function isBanError(error?: string): boolean {
+  if (!error) return false
+  return BAN_MARKERS.some((m) => error.includes(m))
+}
+
+/**
+ * Upsert a banned account into the Vault so users can track it.
+ * Only email, refreshToken, clientId are available at this point; password is left empty.
+ */
+function syncBannedAccountToVault(email: string, refreshToken: string, clientId: string, error: string): void {
+  const note = `Banned: ${error.substring(0, 120)} (${new Date().toLocaleString()})`
+  useVaultStore.getState().upsertByEmail(email, {
+    refreshToken,
+    clientId,
+    lastUsedAt: Date.now(),
+    note
+  })
+}
 
 interface AccountsState {
   // 应用版本号
@@ -968,6 +991,18 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
       return { accounts }
     })
     get().saveToStorage()
+    // Sync to Vault when a ban is detected
+    if (status === 'error' && isBanError(error)) {
+      const account = get().accounts.get(id)
+      if (account) {
+        syncBannedAccountToVault(
+          account.email,
+          account.credentials.refreshToken || '',
+          account.credentials.clientId || '',
+          error!
+        )
+      }
+    }
   },
 
   refreshAccountToken: async (id) => {
@@ -2030,6 +2065,18 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
       return { accounts }
     })
+    // Sync banned accounts detected during background refresh
+    if (newStatus === 'error' && isBanError(newError)) {
+      const acc = get().accounts.get(id)
+      if (acc) {
+        syncBannedAccountToVault(
+          acc.email,
+          acc.credentials.refreshToken || '',
+          acc.credentials.clientId || '',
+          newError!
+        )
+      }
+    }
   },
 
   // 处理后台检查结果（由 App.tsx 调用）
@@ -2108,6 +2155,18 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
       return { accounts }
     })
+    // Sync banned accounts detected during background check
+    if (newStatus === 'error' && isBanError(newError)) {
+      const acc = get().accounts.get(id)
+      if (acc) {
+        syncBannedAccountToVault(
+          acc.email,
+          acc.credentials.refreshToken || '',
+          acc.credentials.clientId || '',
+          newError!
+        )
+      }
+    }
   },
 
   // ==================== 定时自动保存 ====================

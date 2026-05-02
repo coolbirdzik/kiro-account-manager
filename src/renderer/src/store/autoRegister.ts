@@ -23,6 +23,14 @@ interface AutoRegisterState {
   concurrency: number
   // Skip Outlook activation
   skipOutlookActivation: boolean
+  // Keep Outlook browser open after registration so mail can be checked manually
+  keepOutlookBrowserOpen: boolean
+  // Browser engine to use for automation
+  browserEngine: 'chromium' | 'cloakbrowser'
+  // Multi-proxy list (one URL per entry). When non-empty, rotates round-robin per task.
+  proxyList: string[]
+  // Internal round-robin cursor (incremented atomically per task)
+  proxyIndex: number
   // Stop flag
   shouldStop: boolean
 }
@@ -44,6 +52,14 @@ interface AutoRegisterActions {
   setConcurrency: (concurrency: number) => void
   // Set skip Outlook activation
   setSkipOutlookActivation: (skip: boolean) => void
+  // Set keep Outlook browser open
+  setKeepOutlookBrowserOpen: (keep: boolean) => void
+  // Set browser engine
+  setBrowserEngine: (engine: 'chromium' | 'cloakbrowser') => void
+  // Set proxy list (parses raw text: one proxy URL per line, blank lines ignored)
+  setProxyList: (rawText: string) => void
+  // Get next proxy URL using round-robin; returns undefined when list is empty
+  getNextProxy: () => string | undefined
   // Request stop
   requestStop: () => void
   // Reset stop flag
@@ -68,6 +84,10 @@ export const useAutoRegisterStore = create<AutoRegisterStore>()((set, get) => ({
   logs: [],
   concurrency: 3,
   skipOutlookActivation: false,
+  keepOutlookBrowserOpen: true,
+  browserEngine: 'chromium',
+  proxyList: [],
+  proxyIndex: 0,
   shouldStop: false,
 
   // Add accounts
@@ -118,6 +138,34 @@ export const useAutoRegisterStore = create<AutoRegisterStore>()((set, get) => ({
   // Set skip Outlook activation
   setSkipOutlookActivation: (skip) => {
     set({ skipOutlookActivation: skip })
+  },
+
+  // Set keep Outlook browser open
+  setKeepOutlookBrowserOpen: (keep) => {
+    set({ keepOutlookBrowserOpen: keep })
+  },
+
+  // Set browser engine
+  setBrowserEngine: (engine) => {
+    set({ browserEngine: engine })
+  },
+
+  // Parse and store proxy list
+  setProxyList: (rawText) => {
+    const list = rawText
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+    set({ proxyList: list, proxyIndex: 0 })
+  },
+
+  // Round-robin next proxy
+  getNextProxy: () => {
+    const { proxyList, proxyIndex } = get()
+    if (proxyList.length === 0) return undefined
+    const proxy = proxyList[proxyIndex % proxyList.length]
+    set({ proxyIndex: proxyIndex + 1 })
+    return proxy
   },
 
   // Request stop

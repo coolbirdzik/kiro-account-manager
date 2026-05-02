@@ -1,11 +1,11 @@
-import { Home, Users, Settings, Info, ChevronLeft, ChevronRight, Fingerprint, Sparkles, UserPlus } from 'lucide-react'
+import { Home, Users, Settings, Info, ChevronLeft, ChevronRight, Fingerprint, Sparkles, UserPlus, KeyRound, Vault } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import kiroLogo from '@/assets/kiro-high-resolution-logo-transparent.png'
 import kiroLogoSmall from '@/assets/Kiro Logo.svg'
 import { useAccountsStore } from '@/store/accounts'
 
-export type PageType = 'home' | 'accounts' | 'autoRegister' | 'machineId' | 'kiroSettings' | 'settings' | 'about'
+export type PageType = 'home' | 'accounts' | 'autoRegister' | 'changePassword' | 'vault' | 'machineId' | 'kiroSettings' | 'settings' | 'about'
 
 interface SidebarProps {
   currentPage: PageType
@@ -18,6 +18,8 @@ const getMenuItems = (t: any): { id: PageType; label: string; icon: React.Elemen
   { id: 'home', label: t('sidebar.home'), icon: Home },
   { id: 'accounts', label: t('sidebar.accounts'), icon: Users },
   { id: 'autoRegister', label: t('sidebar.auto_register'), icon: UserPlus },
+  { id: 'changePassword', label: t('sidebar.change_password'), icon: KeyRound },
+  { id: 'vault', label: t('sidebar.vault'), icon: Vault },
   { id: 'machineId', label: t('sidebar.machine_id'), icon: Fingerprint },
   { id: 'kiroSettings', label: t('sidebar.kiro_settings'), icon: Sparkles },
   { id: 'settings', label: t('sidebar.settings'), icon: Settings },

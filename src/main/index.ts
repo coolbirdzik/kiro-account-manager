@@ -959,6 +959,37 @@ app.whenReady().then(() => {
     }
   })
 
+  // IPC: load vault data
+  ipcMain.handle('load-vault', async () => {
+    try {
+      await initStore()
+      return store!.get('vaultData', null)
+    } catch (error) {
+      console.error('Failed to load vault:', error)
+      return null
+    }
+  })
+
+  // IPC: save vault data
+  ipcMain.handle('save-vault', async (_event, data) => {
+    try {
+      await initStore()
+      store!.set('vaultData', data)
+      // create a lightweight backup
+      try {
+        const fs = await import('fs/promises')
+        const path = await import('path')
+        const backupPath = path.join(path.dirname(store!.path), 'kiro-vault.backup.json')
+        await fs.writeFile(backupPath, JSON.stringify(data, null, 2), 'utf-8')
+      } catch {
+        // backup failure is non-fatal
+      }
+    } catch (error) {
+      console.error('Failed to save vault:', error)
+      throw error
+    }
+  })
+
   // IPC: 刷新账号 Token（支持 IdC 和社交登录）
   ipcMain.handle('refresh-account-token', async (_event, account) => {
     try {
@@ -3680,11 +3711,16 @@ app.whenReady().then(() => {
     refreshToken: string
     clientId: string
     skipOutlookActivation?: boolean
+    keepOutlookOpen?: boolean
     proxyUrl?: string
+    browserEngine?: 'chromium' | 'cloakbrowser'
   }) => {
     console.log('[AutoRegister] Starting registration for:', params.email)
     if (params.proxyUrl) {
       console.log('[AutoRegister] Using proxy:', params.proxyUrl)
+    }
+    if (params.browserEngine) {
+      console.log('[AutoRegister] Browser engine:', params.browserEngine)
     }
     
     // 动态导入自动注册模块
@@ -3704,7 +3740,9 @@ app.whenReady().then(() => {
         sendLog,
         params.emailPassword,
         params.skipOutlookActivation || false,
-        params.proxyUrl
+        params.proxyUrl,
+        params.keepOutlookOpen !== false,
+        params.browserEngine || 'chromium'
       )
       
       return result
@@ -3718,8 +3756,11 @@ app.whenReady().then(() => {
   ipcMain.handle('activate-outlook', async (_event, params: {
     email: string
     emailPassword: string
+    browserEngine?: 'chromium' | 'cloakbrowser'
+    proxyUrl?: string
   }) => {
     console.log('[ActivateOutlook] Starting activation for:', params.email)
+    if (params.proxyUrl) console.log('[ActivateOutlook] Using proxy:', params.proxyUrl)
     
     // 动态导入自动注册模块
     const { activateOutlook } = await import('./autoRegister')
@@ -3734,13 +3775,52 @@ app.whenReady().then(() => {
       const result = await activateOutlook(
         params.email,
         params.emailPassword,
-        sendLog
+        sendLog,
+        false,
+        params.browserEngine || 'chromium',
+        params.proxyUrl
       )
       
       return result
     } catch (error) {
       console.error('[ActivateOutlook] Error:', error)
       return { success: false, error: error instanceof Error ? error.message : '激活失败' }
+    }
+  })
+
+  // ============ Bulk password change ============
+
+  ipcMain.handle('change-outlook-password', async (_event, params: {
+    email: string
+    oldPassword: string
+    newPassword: string
+    refreshToken: string
+    clientId: string
+    proxyUrl?: string
+  }) => {
+    console.log('[ChangePassword] Starting for:', params.email)
+
+    const { changeOutlookPassword } = await import('./changePassword')
+
+    const sendLog = (message: string) => {
+      console.log('[ChangePassword]', message)
+      mainWindow?.webContents.send('change-password-log', { email: params.email, message })
+    }
+
+    try {
+      const result = await changeOutlookPassword(
+        params.email,
+        params.oldPassword,
+        params.newPassword,
+        params.refreshToken,
+        params.clientId,
+        sendLog,
+        params.proxyUrl
+      )
+      return result
+    } catch (error) {
+      console.error('[ChangePassword] Error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Password change failed' }
     }
   })
 
