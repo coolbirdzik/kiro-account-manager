@@ -2066,16 +2066,14 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
       return { accounts }
     })
     // Sync banned accounts detected during background refresh
-    if (newStatus === 'error' && isBanError(newError)) {
-      const acc = get().accounts.get(id)
-      if (acc) {
-        syncBannedAccountToVault(
-          acc.email,
-          acc.credentials.refreshToken || '',
-          acc.credentials.clientId || '',
-          newError!
-        )
-      }
+    const updatedAccount = get().accounts.get(id)
+    if (updatedAccount?.status === 'error' && isBanError(updatedAccount.lastError)) {
+      syncBannedAccountToVault(
+        updatedAccount.email,
+        updatedAccount.credentials.refreshToken || '',
+        updatedAccount.credentials.clientId || '',
+        updatedAccount.lastError!
+      )
     }
   },
 
@@ -2102,6 +2100,8 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     }
 
     // 更新账号状态
+    let newStatus: AccountStatus = 'active'
+    let newError: string | undefined
     set((state) => {
       const accounts = new Map(state.accounts)
       const account = accounts.get(id)
@@ -2118,14 +2118,12 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
         needsRefresh?: boolean
       } | undefined
 
-      // 检测状态
-      let newStatus: AccountStatus = 'active'
-      if (checkData?.status === 'error') {
-        newStatus = 'error'
-      } else if (checkData?.status === 'expired' || checkData?.needsRefresh) {
-        newStatus = 'expired'
-      }
-      const newError = checkData?.errorMessage
+      newStatus = checkData?.status === 'error'
+        ? 'error'
+        : (checkData?.status === 'expired' || checkData?.needsRefresh)
+          ? 'expired'
+          : 'active'
+      newError = checkData?.errorMessage
 
       accounts.set(id, {
         ...account,
@@ -2156,16 +2154,14 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
       return { accounts }
     })
     // Sync banned accounts detected during background check
-    if (newStatus === 'error' && isBanError(newError)) {
-      const acc = get().accounts.get(id)
-      if (acc) {
-        syncBannedAccountToVault(
-          acc.email,
-          acc.credentials.refreshToken || '',
-          acc.credentials.clientId || '',
-          newError!
-        )
-      }
+    const updatedAccount = get().accounts.get(id)
+    if (updatedAccount?.status === 'error' && isBanError(updatedAccount.lastError)) {
+      syncBannedAccountToVault(
+        updatedAccount.email,
+        updatedAccount.credentials.refreshToken || '',
+        updatedAccount.credentials.clientId || '',
+        updatedAccount.lastError!
+      )
     }
   },
 

@@ -55,7 +55,6 @@ export function AutoRegisterPage() {
     setKeepOutlookBrowserOpen,
     setBrowserEngine,
     setProxyList,
-    getNextProxy,
     requestStop,
     resetStop,
     getStats
