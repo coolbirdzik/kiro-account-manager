@@ -10,12 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+  build-and-release:
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
@@ -44,4 +40,4 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           PYTHON: ${{ env.pythonLocation }}\python.exe
           npm_config_python: ${{ env.pythonLocation }}\python.exe
-        run: npm run build && npx electron-builder --${{ matrix.os == 'windows-latest' && 'win' || matrix.os == 'macos-latest' && 'mac' || 'linux' }} --publish always
+        run: npm run build && npx electron-builder --win --publish always
