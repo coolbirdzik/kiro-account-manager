@@ -1,21 +1,23 @@
-name: Release
+name: Build and Bump Version
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build-and-bump:
     runs-on: windows-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -34,10 +36,19 @@ jobs:
           PYTHON: ${{ env.pythonLocation }}\python.exe
           npm_config_python: ${{ env.pythonLocation }}\python.exe
 
-      - name: Build and publish release
+      - name: Build app
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
           PYTHON: ${{ env.pythonLocation }}\python.exe
           npm_config_python: ${{ env.pythonLocation }}\python.exe
-        run: npm run build && npx electron-builder --win --publish always
+        run: npm run build
+
+      - name: Bump patch version
+        shell: bash
+        run: |
+          npm version patch --no-git-tag-version
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore(release): bump version [skip ci]" || echo "No version changes to commit"
+          git push
