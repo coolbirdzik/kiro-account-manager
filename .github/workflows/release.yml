@@ -1,16 +1,22 @@
-name: Build and Bump Version
+name: Build and Publish Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      bump_version:
+        description: Bump patch version before building
+        required: false
+        type: boolean
+        default: false
   push:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-and-bump:
+  build-and-release:
     runs-on: windows-latest
 
     steps:
@@ -36,14 +42,13 @@ jobs:
           PYTHON: ${{ env.pythonLocation }}\python.exe
           npm_config_python: ${{ env.pythonLocation }}\python.exe
 
-      - name: Build app
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-          PYTHON: ${{ env.pythonLocation }}\python.exe
-          npm_config_python: ${{ env.pythonLocation }}\python.exe
-        run: npm run build
+      - name: Read package version
+        id: pkg
+        shell: bash
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
 
       - name: Bump patch version
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bump_version == true }}
         shell: bash
         run: |
           npm version patch --no-git-tag-version
@@ -51,4 +56,24 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json
           git commit -m "chore(release): bump version [skip ci]" || echo "No version changes to commit"
-          git push
+          git push origin HEAD:main
+
+      - name: Build app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          PYTHON: ${{ env.pythonLocation }}\python.exe
+          npm_config_python: ${{ env.pythonLocation }}\python.exe
+        run: npm run build && npx electron-builder --win --publish never
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.pkg.outputs.version }}
+          name: v${{ steps.pkg.outputs.version }}
+          files: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
