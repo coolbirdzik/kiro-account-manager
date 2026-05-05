@@ -16,14 +16,51 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    runs-on: windows-latest
-
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pkg.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Read package version
+        id: pkg
+        shell: bash
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            artifact_glob: |
+              dist/*.exe
+              dist/*.blockmap
+              dist/latest.yml
+          - os: macos-latest
+            target: mac
+            artifact_glob: |
+              dist/*.dmg
+              dist/*.zip
+              dist/latest-mac.yml
+          - os: ubuntu-latest
+            target: linux
+            artifact_glob: |
+              dist/*.AppImage
+              dist/*.deb
+              dist/*.tar.gz
+              dist/*.yml
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -42,40 +79,36 @@ jobs:
           PYTHON: ${{ env.pythonLocation }}\python.exe
           npm_config_python: ${{ env.pythonLocation }}\python.exe
 
-      - name: Read package version
-        id: pkg
-        shell: pwsh
-        run: |
-          $version = node -p "require('./package.json').version"
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
-      - name: Bump patch version
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bump_version == true }}
-        shell: bash
-        run: |
-          npm version patch --no-git-tag-version
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
-          git commit -m "chore(release): bump version [skip ci]" || echo "No version changes to commit"
-          git push origin HEAD:main
-
       - name: Build app
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           PYTHON: ${{ env.pythonLocation }}\python.exe
           npm_config_python: ${{ env.pythonLocation }}\python.exe
-        run: npm run build && npx electron-builder --win --publish never
+        run: npm run build && npx electron-builder --${{ matrix.target }} --publish never
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-artifacts
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.pkg.outputs.version }}
-          name: v${{ steps.pkg.outputs.version }}
-          files: |
-            dist/*.exe
-            dist/*.blockmap
-            dist/latest.yml
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: v${{ needs.prepare.outputs.version }}
+          files: release-assets/**/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
